@@ -1,5 +1,7 @@
 package com.msvc.order.service;
 
+import brave.Span;
+import brave.Tracer;
 import com.msvc.order.dto.InventarioResponse;
 import com.msvc.order.dto.OrderLineItemsDto;
 import com.msvc.order.dto.OrderRequest;
@@ -27,6 +29,9 @@ public class OrderService {
   @Autowired
   private WebClient.Builder webClientBuilder;
 
+  @Autowired
+  private Tracer tracer;
+
   @Transactional(readOnly = true)
   public String placeOrder(OrderRequest orderRequest){
     Order order = new Order();
@@ -39,23 +44,29 @@ public class OrderService {
     List<String> codigoSku = order.getOrderLineItems().stream()
                     .map(OrderLineItems::getCodigoSku)
                     .collect(Collectors.toList());
+
     System.out.println("codigos sku: " + codigoSku);
 
-    InventarioResponse[] inventarioResponsesArray = webClientBuilder.build().get()
-                    .uri("http://localhost:8083/api/inventario",uriBuilder -> uriBuilder.queryParam("codigoSku",codigoSku).build())
-                    .retrieve()
-                    .bodyToMono(InventarioResponse[].class)
-                    .block();
+    Span inventarioServiceLookup = tracer.nextSpan().name("InventarioServiceLookup");
+    try (Tracer.SpanInScope isLookup=tracer.withSpanInScope(inventarioServiceLookup.start())){
+      inventarioServiceLookup.tag("call","inventario-service");
+      InventarioResponse[] inventarioResponsesArray = webClientBuilder.build().get()
+              .uri("http://localhost:8083/api/inventario",uriBuilder -> uriBuilder.queryParam("codigoSku",codigoSku).build())
+              .retrieve()
+              .bodyToMono(InventarioResponse[].class)
+              .block();
 
-    boolean allProductosStock = Arrays.stream(inventarioResponsesArray)
-                    .allMatch(InventarioResponse::isInStock);
-    if(allProductosStock){
-      orderRepository.save(order);
-      return "Pedido ordenado con éxito";
-    }else{
-      throw new IllegalArgumentException("El producto no esta en stock");
+      boolean allProductosStock = Arrays.stream(inventarioResponsesArray)
+              .allMatch(InventarioResponse::isInStock);
+      if(allProductosStock){
+        orderRepository.save(order);
+        return "Pedido ordenado con éxito";
+      }else{
+        throw new IllegalArgumentException("El producto no esta en stock");
+      }
+    }finally{
+      inventarioServiceLookup.flush();
     }
-
   }
 
   private OrderLineItems mapToDto(OrderLineItemsDto orderLineItemsDto){
