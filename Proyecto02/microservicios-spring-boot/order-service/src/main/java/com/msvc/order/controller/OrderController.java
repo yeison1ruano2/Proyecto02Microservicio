@@ -1,7 +1,6 @@
 package com.msvc.order.controller;
 
 import com.msvc.order.dto.OrderRequest;
-import com.msvc.order.model.Order;
 import com.msvc.order.service.OrderService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
@@ -23,7 +22,7 @@ public class OrderController {
 
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
-  @CircuitBreaker(name="inventario",fallbackMethod = "falBackMethod")
+  @CircuitBreaker(name="inventario",fallbackMethod = "fallBackMethod")
   @TimeLimiter(name="inventario")
   @Retry(name="inventario")
   public CompletableFuture<String> realizarPedido(@RequestBody OrderRequest orderRequest){
